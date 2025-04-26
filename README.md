@@ -1,5 +1,9 @@
 # SQLite CLI Frontend
 
+A macro for building purpose-specific local database tracking systems.
+
+# explanation
+
 Allows the user to:
 
 - define a data-schema
@@ -37,3 +41,7 @@ $ myprogram X_____
 ```
 
 where the ui hand-holds you through building a valid command by showing/filtering menu options, and giving you a form to fill where appropriate, but always showing the "programmer-y" full command equivalent at the top of the screen
+
+# it's a macro
+
+This project therefore, is a code tool for generating binary applications. It takes in a toml config file and it produces a binary application which facilitates database usage for the case described in the toml.

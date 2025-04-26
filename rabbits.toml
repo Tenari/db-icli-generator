@@ -1,0 +1,18 @@
+[breeds]
+name = {type = "text", not_null = true}
+
+[animals]
+gender =      { type = "text",    check = ["m", "f"] }
+breed_id =    { type = "integer", foreign = "breeds" }
+father_id =   { type = "integer", foreign = "animals" }
+mother_id =   { type = "integer", foreign = "animals" }
+born_at =     { type = "text",    default = "CURRENT_TIMESTAMP" }
+died_at =     { type = "text",    default = "NULL" }
+
+[weights]
+animal_id = {type = "integer", not_null = true, foreign = "animals"}
+weight = {type = "real", not_null = true}
+
+[events]
+animal_id = {type = "integer", not_null = true, foreign = "animals"}
+kind = {type = "text", check = ['birth', 'natural_death', 'slaughter', 'cull', 'purchase', 'sale', 'breed_attempt', 'pregnancy_test', 'kindling']}
