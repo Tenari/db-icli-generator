@@ -45,3 +45,25 @@ where the ui hand-holds you through building a valid command by showing/filterin
 # it's a macro
 
 This project therefore, is a code tool for generating binary applications. It takes in a toml config file and it produces a binary application which facilitates database usage for the case described in the toml.
+
+```
+ruby generator.rb myproject.toml
+```
+
+should create a `myproject` dir, and fill it with zig files that are the application
+
+
+## command line structure
+
+`myproject [verb] [type]`
+
+for each table-type, and CRUD verb
+
+- `myproject create mything`
+- `rabbits create animal`
+
+## devnotes
+
+to run the manually built zig app = ` zig run src/main.zig` from rootdir
+
+to regenerate = `ruby generator.rb rabbits.toml`

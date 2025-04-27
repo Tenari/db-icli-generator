@@ -1,15 +1,15 @@
-const Breed = struct {
+pub const Breed = struct {
     id: i64,
     name: []const u8,
     updated_at: []const u8,
     created_at: []const u8,
 };
 
-const AnimalGender = enum {
+pub const AnimalGender = enum {
     male, female,
 };
 
-const Animal = struct {
+pub const Animal = struct {
     id: i64,
     gender: AnimalGender,
     breed_id: ?i64,
@@ -21,14 +21,14 @@ const Animal = struct {
     created_at: []const u8,
 };
 
-const Weight = struct {
+pub const Weight = struct {
     id: i64,
     animal_id: i64,
     weight: f64,
     updated_at: []const u8,
     created_at: []const u8,
 };
-const Event = struct {
+pub const Event = struct {
     id: i64,
     animal_id: i64,
     kind: EventKind,
@@ -36,7 +36,7 @@ const Event = struct {
     created_at: []const u8,
 };
 
-const EventKind = enum {
+pub const EventKind = enum {
     birth,
     natural_death,
     slaughter,
@@ -48,3 +48,6 @@ const EventKind = enum {
     kindling,
 };
 
+pub const Noun = enum {
+    breed, animal, weight, event
+};
