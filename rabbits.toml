@@ -2,7 +2,7 @@
 name = {type = "text", not_null = true}
 
 [animals]
-gender =      { type = "text",    check = ["m", "f"] }
+gender =      { type = "text",    check = ["male", "female"] }
 breed_id =    { type = "integer", foreign = "breeds" }
 father_id =   { type = "integer", foreign = "animals" }
 mother_id =   { type = "integer", foreign = "animals" }

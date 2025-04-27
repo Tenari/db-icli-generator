@@ -8,7 +8,6 @@ end
 conf = TomlRB.load_file(ARGV[0])
 
 sql = ""
-
 conf.each do |table_name, details|
   foreign_key_sql = []
   column_sql = "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
@@ -35,4 +34,37 @@ conf.each do |table_name, details|
 );\n"
 end
 
-puts sql
+# create the sql file definition
+File.open(ARGV[0].gsub(".toml", ".sql"), 'w') { |file| file.write(sql) }
+
+# create the zig types.zig file
+def sql_type_to_zig_type(type)
+  if type == "text"
+    "[]const u8"
+  elsif type == "integer"
+    "i64"
+  elsif type == "real"
+    "f64"
+  end
+end
+
+ztypes = ""
+conf.each do |table_name, details|
+  struct_name = table_name[0..-2].capitalize
+  enums = ""
+  fields = "  id: i64,\n"
+  details.each do |col, settings|
+    zig_type = sql_type_to_zig_type(settings["type"].downcase)
+    if settings["check"]
+      zig_type = "#{struct_name}#{col.capitalize}"
+      enums += "const #{zig_type} = enum { #{settings['check'].map {|opt| opt }.join(', ')} };\n"
+    end
+    nullable = settings["not_null"] ? "" : (settings["check"] ? "" : "?")
+    fields += "  #{col}: #{nullable}#{zig_type},\n"
+  end
+  fields += "  updated_at: []const u8,\n  created_at: []const u8,\n"
+  ztypes += "#{enums}const #{struct_name} = struct {
+#{fields}};\n\n"
+end
+
+puts ztypes
