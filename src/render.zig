@@ -10,12 +10,12 @@ pub const TermSizeAndLoc = struct {
     width: u16,
     // terminal height as measured number of characters that fit into terminal vertically
     height: u16,
-    cursor_x: u16 = 0,
-    cursor_y: u16 = 0,
+    cursor_x: u16 = 14,
+    cursor_y: u16 = 1,
 };
 
 pub fn init(out: std.fs.File) !void {
-    try out.writeAll("\x1B[?1049h\x1B[?25l"); // go to alternate buffer, and hide cursor
+    try out.writeAll("\x1B[?1049h"); // go to alternate buffer
     // prevent terminal echoing characters
     var term = try std.posix.tcgetattr(out.handle);
     term.lflag.ECHO = false;

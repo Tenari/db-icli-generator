@@ -51,10 +51,18 @@ pub fn main() !void {
         //if (byte == 10) {
         //    handleSelection(null);
         //}
-        //// digit selection
-        //if (byte > 48 and byte < 58) {
-        //    handleSelection(@intCast(byte - 49));
-        //}
+        // digit selection
+        if (byte > 48 and byte < 58) {
+            if (state.command.verb == null) {
+                state.command.verb = @enumFromInt(byte - 49);
+                state.term.cursor_x += @intCast(verbLen(state.command.verb.?));
+            } else {
+                if (state.command.noun == null) {
+                    state.command.noun = @enumFromInt(byte - 49);
+                    state.term.cursor_x += @intCast(nounLen(state.command.noun.?));
+                }
+            }
+        }
         // up
         //if (byte == 'k' or std.mem.eql(u8, input[0..3], "\x1B[A")) {
         //    render.moveSelectedIndex(&current_page, .up);
@@ -88,6 +96,24 @@ pub fn main() !void {
     //}
 }
 
+fn verbLen(verb: Verb) usize {
+    //return @typeInfo(Verb).@"enum".fields[@intFromEnum(verb)].name.len;
+    inline for (@typeInfo(Verb).@"enum".fields, 0..) |f, i| {
+        if (i == @intFromEnum(verb)) {
+            return f.name.len + 1;
+        }
+    }
+    return 0;
+}
+fn nounLen(noun: Noun) usize {
+    inline for (@typeInfo(Noun).@"enum".fields, 0..) |f, i| {
+        if (i == @intFromEnum(noun)) {
+            return f.name.len + 1;
+        }
+    }
+    return 0;
+}
+
 fn drawState(buffer: []u8) void {
     var pos: usize = 0;
     buffer[pos] = '\n';
@@ -97,9 +123,16 @@ fn drawState(buffer: []u8) void {
     @memcpy(buffer[pos..(appname.len+pos)], appname);
     pos += appname.len;
     if (state.command.verb) |v| {
+        pos += 1;
         const verb_name = @tagName(v);
         @memcpy(buffer[pos..(verb_name.len+pos)], verb_name);
         pos += verb_name.len;
+    }
+    if (state.command.noun) |n| {
+        pos += 1;
+        const name = @tagName(n);
+        @memcpy(buffer[pos..(name.len+pos)], name);
+        pos += name.len;
     }
     buffer[pos] = '\n';
     pos += (8 + appname.len);
@@ -115,6 +148,22 @@ fn drawState(buffer: []u8) void {
             pos += f.name.len;
             buffer[pos] = '\n';
             pos += (8 + appname.len);
+        }
+    } else {
+        if (state.command.noun == null) {
+            inline for (@typeInfo(Noun).@"enum".fields) |f| {
+                pos += verbLen(state.command.verb.?);
+                buffer[pos] = @intCast(49+f.value);
+                pos += 1;
+                buffer[pos] = '.';
+                pos += 1;
+                buffer[pos] = ' ';
+                pos += 1;
+                @memcpy(buffer[pos..(f.name.len+pos)], f.name);
+                pos += f.name.len;
+                buffer[pos] = '\n';
+                pos += (8 + appname.len);
+            }
         }
     }
 }
