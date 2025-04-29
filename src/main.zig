@@ -3,6 +3,9 @@ const render = @import("render.zig");
 const types = @import("types.zig");
 const Noun = types.Noun;
 
+const ASCII_DELETE = 127;
+const ASCII_BACKSPACE = 8;
+
 const appname = "rabbits";
 
 const State = struct {
@@ -21,6 +24,7 @@ const Verb = enum {
 const Command = struct {
     verb: ?Verb = null,
     noun: ?Noun = null,
+    characters: [64]u8 = [_]u8 { ' ' } ** 64,
 };
 
 var state = State {};
@@ -51,18 +55,72 @@ pub fn main() !void {
         //if (byte == 10) {
         //    handleSelection(null);
         //}
-        // digit selection
-        if (byte > 48 and byte < 58) {
+
+        if (isDigitCharacter(byte)) {
             if (state.command.verb == null) {
                 state.command.verb = @enumFromInt(byte - 49);
-                state.term.cursor_x += @intCast(verbLen(state.command.verb.?));
+                state.term.cursor_x += @intCast(enumLen(Verb, state.command.verb.?));
             } else {
                 if (state.command.noun == null) {
                     state.command.noun = @enumFromInt(byte - 49);
-                    state.term.cursor_x += @intCast(nounLen(state.command.noun.?));
+                    state.term.cursor_x += @intCast(enumLen(Noun, state.command.noun.?));
+                }
+            }
+            @memset(&state.command.characters, ' ');
+        }
+
+        if (isAllowedCommandCharacter(byte)) {
+            var placed: bool = false;
+            for (&state.command.characters) |*char| {
+                if (!placed and char.* == ' ') {
+                    char.* = byte;
+                    placed = true;
+                    state.term.cursor_x += 1;
                 }
             }
         }
+        // backspace or delete
+        if (byte == ASCII_BACKSPACE or byte == ASCII_DELETE) {
+            var deleted: bool = false;
+            // loop through backwards
+            for (0..state.command.characters.len) |i| {
+                const j = state.command.characters.len - i - 1;
+                if (!deleted and state.command.characters[j] != ' ') {
+                    state.command.characters[j] = ' ';
+                    deleted = true;
+                    state.term.cursor_x -= 1;
+                }
+            }
+        }
+        if (byte == '\t') {
+            const typed_characters = currentPartialCommandCharacters();
+            var completed: bool = false;
+            if (state.command.verb == null) {
+                inline for (@typeInfo(Verb).@"enum".fields) |f| {
+                    if (!completed and std.mem.startsWith(u8, f.name, typed_characters)) {
+                        state.command.verb = @enumFromInt(f.value);
+                        state.term.cursor_x += f.name.len;
+                        completed = true;
+                    }
+                }
+            } else {
+                if (state.command.noun == null) {
+                    inline for (@typeInfo(Noun).@"enum".fields) |f| {
+                        if (!completed and std.mem.startsWith(u8, f.name, typed_characters)) {
+                            state.command.noun = @enumFromInt(f.value);
+                            state.term.cursor_x += f.name.len;
+                            completed = true;
+                        }
+                    }
+                }
+            }
+            if (completed) {
+                state.term.cursor_x -= @intCast(typed_characters.len);
+                state.term.cursor_x += 1;
+                @memset(&state.command.characters, ' ');
+            }
+        }
+
         // up
         //if (byte == 'k' or std.mem.eql(u8, input[0..3], "\x1B[A")) {
         //    render.moveSelectedIndex(&current_page, .up);
@@ -96,18 +154,16 @@ pub fn main() !void {
     //}
 }
 
-fn verbLen(verb: Verb) usize {
-    //return @typeInfo(Verb).@"enum".fields[@intFromEnum(verb)].name.len;
-    inline for (@typeInfo(Verb).@"enum".fields, 0..) |f, i| {
-        if (i == @intFromEnum(verb)) {
-            return f.name.len + 1;
-        }
-    }
-    return 0;
+fn isAllowedCommandCharacter(byte: u8) bool {
+    return (byte >= 97 and byte <= 122) or (byte == '=') or (byte == '-');
 }
-fn nounLen(noun: Noun) usize {
-    inline for (@typeInfo(Noun).@"enum".fields, 0..) |f, i| {
-        if (i == @intFromEnum(noun)) {
+fn isDigitCharacter(byte: u8) bool {
+    return (byte >= '0' and byte <= '9');
+}
+
+fn enumLen(comptime T: type, en: T) usize {
+    inline for (@typeInfo(T).@"enum".fields, 0..) |f, i| {
+        if (i == @intFromEnum(en)) {
             return f.name.len + 1;
         }
     }
@@ -115,6 +171,7 @@ fn nounLen(noun: Noun) usize {
 }
 
 fn drawState(buffer: []u8) void {
+    // draw the current version of the cli command
     var pos: usize = 0;
     buffer[pos] = '\n';
     pos += 5;
@@ -134,25 +191,18 @@ fn drawState(buffer: []u8) void {
         @memcpy(buffer[pos..(name.len+pos)], name);
         pos += name.len;
     }
+    pos += 1;
+    // their hand-typed characters
+    @memcpy(buffer[pos..(state.command.characters.len+pos)], &state.command.characters);
+    pos += state.command.characters.len;
+
+    // draw the completion options
     buffer[pos] = '\n';
     pos += (8 + appname.len);
+    const typed_characters = currentPartialCommandCharacters();
     if (state.command.verb == null) {
         inline for (@typeInfo(Verb).@"enum".fields) |f| {
-            buffer[pos] = @intCast(49+f.value);
-            pos += 1;
-            buffer[pos] = '.';
-            pos += 1;
-            buffer[pos] = ' ';
-            pos += 1;
-            @memcpy(buffer[pos..(f.name.len+pos)], f.name);
-            pos += f.name.len;
-            buffer[pos] = '\n';
-            pos += (8 + appname.len);
-        }
-    } else {
-        if (state.command.noun == null) {
-            inline for (@typeInfo(Noun).@"enum".fields) |f| {
-                pos += verbLen(state.command.verb.?);
+            if (std.mem.startsWith(u8, f.name, typed_characters)) {
                 buffer[pos] = @intCast(49+f.value);
                 pos += 1;
                 buffer[pos] = '.';
@@ -165,7 +215,30 @@ fn drawState(buffer: []u8) void {
                 pos += (8 + appname.len);
             }
         }
+    } else {
+        if (state.command.noun == null) {
+            inline for (@typeInfo(Noun).@"enum".fields) |f| {
+                if (std.mem.startsWith(u8, f.name, typed_characters)) {
+                    pos += enumLen(Verb, state.command.verb.?);
+                    buffer[pos] = @intCast(49+f.value);
+                    pos += 1;
+                    buffer[pos] = '.';
+                    pos += 1;
+                    buffer[pos] = ' ';
+                    pos += 1;
+                    @memcpy(buffer[pos..(f.name.len+pos)], f.name);
+                    pos += f.name.len;
+                    buffer[pos] = '\n';
+                    pos += (8 + appname.len);
+                }
+            }
+        }
     }
+}
+
+fn currentPartialCommandCharacters() []u8 {
+    const first_space_index = std.mem.indexOfScalar(u8, &state.command.characters, ' ') orelse 64;
+    return state.command.characters[0..first_space_index];
 }
 
 //fn handleSelection(index: ?usize) void {
