@@ -14,38 +14,41 @@ pub const TermSizeAndLoc = struct {
     cursor_y: u16 = 1,
 };
 
-pub fn init(out: std.fs.File) !void {
+pub fn init(out: std.fs.File, terminal_size: *TermSizeAndLoc) !void {
     try out.writeAll("\x1B[?1049h"); // go to alternate buffer
     // prevent terminal echoing characters
     var term = try std.posix.tcgetattr(out.handle);
     term.lflag.ECHO = false;
     term.lflag.ICANON = false;
     try std.posix.tcsetattr(out.handle, std.posix.TCSA.NOW, term);
+    try testAndUpdateTerminalSize(out, terminal_size);
 }
 
 pub fn deinit(out: std.fs.File) void {
     out.writeAll("\x1B[?1049l\x1B[?25h") catch unreachable; // return from alternate buffer and show cursor
 }
 
+fn testAndUpdateTerminalSize(terminal: std.fs.File, terminal_size: *TermSizeAndLoc) !void {
+    _ = terminal.getOrEnableAnsiEscapeSupport();
+    var buf: std.posix.system.winsize = undefined;
+    switch (std.posix.errno(
+        std.posix.system.ioctl(
+            terminal.handle,
+            std.posix.T.IOCGWINSZ,
+            @intFromPtr(&buf),
+        ),
+    )) {
+        .SUCCESS => {
+            terminal_size.width = buf.col;
+            terminal_size.height = buf.row;
+        },
+        else => return error.IoctlError,
+    }
+}
+
 pub fn render(terminal: std.fs.File, buffer: []u8, terminal_size: *TermSizeAndLoc) !void {
     // test terminal size
-    {
-        _ = terminal.getOrEnableAnsiEscapeSupport();
-        var buf: std.posix.system.winsize = undefined;
-        switch (std.posix.errno(
-            std.posix.system.ioctl(
-                terminal.handle,
-                std.posix.T.IOCGWINSZ,
-                @intFromPtr(&buf),
-            ),
-        )) {
-            .SUCCESS => {
-                terminal_size.width = buf.col;
-                terminal_size.height = buf.row;
-            },
-            else => return error.IoctlError,
-        }
-    }
+    try testAndUpdateTerminalSize(terminal, terminal_size);
     // clear screen
     try terminal.writeAll(clear);
     // move to 0,0

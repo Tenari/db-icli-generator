@@ -35,7 +35,7 @@ pub fn main() !void {
     const in = std.io.getStdIn().reader();
     const out = std.io.getStdOut();
 
-    try render.init(out);
+    try render.init(out, &state.term);
     defer render.deinit(out);
 
     var input: [32]u8 = undefined;
@@ -172,9 +172,8 @@ fn enumLen(comptime T: type, en: T) usize {
 
 fn drawState(buffer: []u8) void {
     // draw the current version of the cli command
-    var pos: usize = 0;
-    buffer[pos] = '\n';
-    pos += 5;
+    var pos: usize = movePosToNextLine(0);
+    pos += 4;
     buffer[pos] = '$';
     pos += 2;
     @memcpy(buffer[pos..(appname.len+pos)], appname);
@@ -195,10 +194,10 @@ fn drawState(buffer: []u8) void {
     // their hand-typed characters
     @memcpy(buffer[pos..(state.command.characters.len+pos)], &state.command.characters);
     pos += state.command.characters.len;
+    pos = movePosToNextLine(pos);
 
     // draw the completion options
-    buffer[pos] = '\n';
-    pos += (8 + appname.len);
+    pos += (7 + appname.len);
     const typed_characters = currentPartialCommandCharacters();
     if (state.command.verb == null) {
         inline for (@typeInfo(Verb).@"enum".fields) |f| {
@@ -211,8 +210,8 @@ fn drawState(buffer: []u8) void {
                 pos += 1;
                 @memcpy(buffer[pos..(f.name.len+pos)], f.name);
                 pos += f.name.len;
-                buffer[pos] = '\n';
-                pos += (8 + appname.len);
+                pos = movePosToNextLine(pos);
+                pos += (7 + appname.len);
             }
         }
     } else {
@@ -228,8 +227,8 @@ fn drawState(buffer: []u8) void {
                     pos += 1;
                     @memcpy(buffer[pos..(f.name.len+pos)], f.name);
                     pos += f.name.len;
-                    buffer[pos] = '\n';
-                    pos += (8 + appname.len);
+                    pos = movePosToNextLine(pos);
+                    pos += (7 + appname.len);
                 }
             }
         }
@@ -239,6 +238,10 @@ fn drawState(buffer: []u8) void {
 fn currentPartialCommandCharacters() []u8 {
     const first_space_index = std.mem.indexOfScalar(u8, &state.command.characters, ' ') orelse 64;
     return state.command.characters[0..first_space_index];
+}
+
+fn movePosToNextLine(pos: usize) usize {
+    return pos + (state.term.width - (pos % state.term.width));
 }
 
 //fn handleSelection(index: ?usize) void {
