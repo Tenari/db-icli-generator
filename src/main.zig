@@ -15,6 +15,33 @@ const State = struct {
     term: render.TermSizeAndLoc = render.TermSizeAndLoc {
         .width = 80, .height = 10,
     },
+    current_menu: ?Menu = null,
+
+    fn resetMenu(self: *State) void {
+        self.current_menu = null;
+        self.term.cursor_y = 1;
+    }
+};
+
+const Menu = struct {
+    selection_index: usize = 0,
+    len: usize,
+
+    fn move(self: *Menu, direction: ArrowDirection) void {
+        switch (direction) {
+            .down => if (self.selection_index < self.len - 1) {
+                self.selection_index += 1;
+            } else {
+                self.selection_index = 0;
+            },
+            .up => if (self.selection_index == 0) {
+                self.selection_index = self.len - 1;
+            } else {
+                self.selection_index -= 1;
+            },
+            else => unreachable,
+        }
+    }
 };
 
 const Verb = enum {
@@ -52,9 +79,19 @@ pub fn main() !void {
             state.running = false;
         }
         // ENTER/return
-        //if (byte == 10) {
-        //    handleSelection(null);
-        //}
+        if (byte == 10) {
+            if (state.current_menu) |menu| {
+                if (state.command.verb == null) {
+                    state.command.verb = @enumFromInt(menu.selection_index);
+                    state.resetMenu();
+                } else {
+                    if (state.command.noun == null) {
+                        state.command.noun = @enumFromInt(menu.selection_index);
+                        state.resetMenu();
+                    }
+                }
+            }
+        }
 
         if (isDigitCharacter(byte)) {
             if (state.command.verb == null) {
@@ -91,10 +128,19 @@ pub fn main() !void {
                     state.term.cursor_x -= 1;
                 }
             }
+            if (!deleted) {
+                if (state.command.noun) |n| {
+                    state.term.cursor_x -= @intCast(enumLen(Noun, n));
+                    state.command.noun = null;
+                } else if (state.command.verb) |v| {
+                    state.term.cursor_x -= @intCast(enumLen(Verb, v));
+                    state.command.verb = null;
+                }
+            }
         }
         if (byte == '\t') {
-            const typed_characters = currentPartialCommandCharacters();
             var completed: bool = false;
+            const typed_characters = currentPartialCommandCharacters();
             if (state.command.verb == null) {
                 inline for (@typeInfo(Verb).@"enum".fields) |f| {
                     if (!completed and std.mem.startsWith(u8, f.name, typed_characters)) {
@@ -118,6 +164,16 @@ pub fn main() !void {
                 state.term.cursor_x -= @intCast(typed_characters.len);
                 state.term.cursor_x += 1;
                 @memset(&state.command.characters, ' ');
+                state.resetMenu();
+            }
+        }
+
+        if (isUpOrDownArrow(input[0..3])) {
+            if (state.current_menu) |*menu| {
+                const direction = inputToArrowDirectionEnum(input[0..3]) catch unreachable;
+                menu.move(direction);
+            } else {
+                attemptToInitMenu();
             }
         }
 
@@ -160,6 +216,27 @@ fn isAllowedCommandCharacter(byte: u8) bool {
 fn isDigitCharacter(byte: u8) bool {
     return (byte >= '0' and byte <= '9');
 }
+fn isUpOrDownArrow(input: *[3]u8) bool {
+    const direction = inputToArrowDirectionEnum(input) catch return false;
+    return direction == ArrowDirection.up or direction == ArrowDirection.down;
+}
+fn inputToArrowDirectionEnum(input: *[3]u8) !ArrowDirection {
+    if (std.mem.eql(u8, input, "\x1B[A")) {
+        return .up;
+    } else if (std.mem.eql(u8, input, "\x1B[B")) {
+        return .down;
+    } else if (std.mem.eql(u8, input, "\x1B[C")) {
+        return .right;
+    } else if (std.mem.eql(u8, input, "\x1B[D")) {
+        return .left;
+    } else {
+        return error.InputNotAnArrowKey;
+    }
+}
+
+const ArrowDirection = enum {
+    up, down, right, left
+};
 
 fn enumLen(comptime T: type, en: T) usize {
     inline for (@typeInfo(T).@"enum".fields, 0..) |f, i| {
@@ -199,6 +276,7 @@ fn drawState(buffer: []u8) void {
     // draw the completion options
     pos += (7 + appname.len);
     const typed_characters = currentPartialCommandCharacters();
+    var menu_draw_start_pos = pos;
     if (state.command.verb == null) {
         inline for (@typeInfo(Verb).@"enum".fields) |f| {
             if (std.mem.startsWith(u8, f.name, typed_characters)) {
@@ -216,8 +294,13 @@ fn drawState(buffer: []u8) void {
         }
     } else {
         if (state.command.noun == null) {
+            var first: bool = true;
             inline for (@typeInfo(Noun).@"enum".fields) |f| {
                 if (std.mem.startsWith(u8, f.name, typed_characters)) {
+                    if (first) {
+                        first = false;
+                        menu_draw_start_pos += enumLen(Verb, state.command.verb.?);
+                    }
                     pos += enumLen(Verb, state.command.verb.?);
                     buffer[pos] = @intCast(49+f.value);
                     pos += 1;
@@ -233,6 +316,13 @@ fn drawState(buffer: []u8) void {
             }
         }
     }
+
+    if (state.current_menu) |menu| {
+        state.term.cursor_x = @truncate(menu_draw_start_pos % state.term.width);
+        const extra_menu_index_y_bump: u16 = @truncate(menu.selection_index);
+        const draw_menu_start_y: u16 = @truncate(menu_draw_start_pos / state.term.width);
+        state.term.cursor_y = draw_menu_start_y + extra_menu_index_y_bump;
+    }
 }
 
 fn currentPartialCommandCharacters() []u8 {
@@ -244,6 +334,55 @@ fn movePosToNextLine(pos: usize) usize {
     return pos + (state.term.width - (pos % state.term.width));
 }
 
+fn attemptToInitMenu() void {
+    const typed_characters = currentPartialCommandCharacters();
+    // recompute state
+    if (state.command.verb == null) {
+        var menu_option_count: usize = 0;
+        inline for (@typeInfo(Verb).@"enum".fields) |f| {
+            if (std.mem.startsWith(u8, f.name, typed_characters)) {
+                menu_option_count += 1;
+            }
+        }
+        if (menu_option_count == 0) {
+            state.resetMenu();
+        } else {
+            if (state.current_menu) |*menu| {
+                menu.len = menu_option_count;
+                if (menu.selection_index >= menu.len) {
+                    menu.selection_index = menu.len - 1;
+                }
+            } else {
+                state.current_menu = Menu {
+                    .len = menu_option_count,
+                };
+            }
+        }
+    } else {
+        if (state.command.noun == null) {
+            var menu_option_count: usize = 0;
+            inline for (@typeInfo(Noun).@"enum".fields) |f| {
+                if (std.mem.startsWith(u8, f.name, typed_characters)) {
+                    menu_option_count += 1;
+                }
+            }
+            if (menu_option_count == 0) {
+                state.resetMenu();
+            } else {
+                if (state.current_menu) |*menu| {
+                    menu.len = menu_option_count;
+                    if (menu.selection_index >= menu.len) {
+                        menu.selection_index = menu.len - 1;
+                    }
+                } else {
+                    state.current_menu = Menu {
+                        .len = menu_option_count,
+                    };
+                }
+            }
+        }
+    }
+}
 //fn handleSelection(index: ?usize) void {
 //    if (render.currentMenu(current_page)) |menu| {
 //        const option = menu.options[index orelse menu.selectedindex];
