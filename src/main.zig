@@ -116,17 +116,17 @@ pub fn main() !void {
         input = [_]u8{ 0 } ** 32;
         _ = try in.read(&input);
         const byte = input[0];
-        if (byte > 33 and byte < 127) {
-            display_buffer[0] = byte;
-        }
+        //if (byte > 33 and byte < 127) {
+        //    display_buffer[0] = byte;
+        //}
         // Q
         if (byte == 81) {
             state.running = false;
         }
         // ENTER/return
         if (byte == 10) {
-            display_buffer[0] = '\\';
-            display_buffer[1] = 'n';
+            //display_buffer[0] = '\\';
+            //display_buffer[1] = 'n';
             std.log.err("enter pressed", .{});
             if (state.current_menu) |menu| {
                 if (state.command.verb == null) {
@@ -147,12 +147,17 @@ pub fn main() !void {
                         defer arena.deinit();
                         const alloc = arena.allocator();
                         std.log.err("trying to run read() command", .{});
+                        const start_pos = state.term.width * 7;
                         switch (noun) {
-                            .breed => try commands.read(types.Breed, alloc, db, display_buffer[(state.term.width*6)..], noun, state.term),
-                            .animal => try commands.read(types.Animal, alloc, db, display_buffer[(state.term.width*6)..], noun, state.term),
-                            .weight => try commands.read(types.Weight, alloc, db, display_buffer[(state.term.width*6)..], noun, state.term),
-                            .event => try commands.read(types.Event, alloc, db, display_buffer[(state.term.width*6)..], noun, state.term),
+                            .breed => try commands.read(types.Breed, alloc, db, display_buffer[start_pos..], noun, state.term),
+                            .animal => try commands.read(types.Animal, alloc, db, display_buffer[start_pos..], noun, state.term),
+                            .weight => try commands.read(types.Weight, alloc, db, display_buffer[start_pos..], noun, state.term),
+                            .event => try commands.read(types.Event, alloc, db, display_buffer[start_pos..], noun, state.term),
                         }
+                        state.command.verb = null;
+                        state.command.noun = null;
+                        @memset(&state.command.characters, ' ');
+                        state.term.cursor_x = 7 + appname.len;
                     }
                 }
             }
@@ -242,22 +247,6 @@ pub fn main() !void {
             }
         }
 
-        // up
-        //if (byte == 'k' or std.mem.eql(u8, input[0..3], "\x1B[A")) {
-        //    render.moveSelectedIndex(&current_page, .up);
-        //}
-        //// down
-        //if (byte == 'j' or std.mem.eql(u8, input[0..3], "\x1B[B")) {
-        //    render.moveSelectedIndex(&current_page, .down);
-        //}
-        //// right
-        //if (byte == 'l' or std.mem.eql(u8, input[0..3], "\x1B[C")) {
-        //    cursor_x += 1;
-        //}
-        //// left
-        //if ((byte == 'h' or std.mem.eql(u8, input[0..3], "\x1B[D")) and cursor_x > 0) {
-        //    cursor_x -= 1;
-        //}
     }
     std.debug.print("bye!", .{});
 
@@ -314,8 +303,7 @@ fn enumLen(comptime T: type, en: T) usize {
 
 fn drawState(buffer: []u8) void {
     // draw the current version of the cli command
-    var pos: usize = movePosToNextLine(0);
-    @memset(buffer[pos..(pos+state.term.width)], ' ');
+    var pos: usize = movePosToAndClearNextLine(0, buffer);
     pos += 4;
     buffer[pos] = '$';
     pos += 2;
@@ -337,8 +325,7 @@ fn drawState(buffer: []u8) void {
     // their hand-typed characters
     @memcpy(buffer[pos..(state.command.characters.len+pos)], &state.command.characters);
     pos += state.command.characters.len;
-    pos = movePosToNextLine(pos);
-    @memset(buffer[pos..(pos+state.term.width)], ' ');
+    pos = movePosToAndClearNextLine(pos, buffer);
 
     // draw the completion options
     pos += (7 + appname.len);
@@ -355,8 +342,7 @@ fn drawState(buffer: []u8) void {
                 pos += 1;
                 @memcpy(buffer[pos..(f.name.len+pos)], f.name);
                 pos += f.name.len;
-                pos = movePosToNextLine(pos);
-                @memset(buffer[pos..(pos+state.term.width)], ' ');
+                pos = movePosToAndClearNextLine(pos, buffer);
                 pos += (7 + appname.len);
             }
         }
@@ -378,12 +364,14 @@ fn drawState(buffer: []u8) void {
                     pos += 1;
                     @memcpy(buffer[pos..(f.name.len+pos)], f.name);
                     pos += f.name.len;
-                    pos = movePosToNextLine(pos);
-                    @memset(buffer[pos..(pos+state.term.width)], ' ');
+                    pos = movePosToAndClearNextLine(pos, buffer);
                     pos += (7 + appname.len);
                 }
             }
         }
+    }
+    while (pos / state.term.width < 5) {
+        pos = movePosToAndClearNextLine(pos, buffer);
     }
 
     if (state.current_menu) |menu| {
@@ -397,13 +385,6 @@ fn drawState(buffer: []u8) void {
 fn currentPartialCommandCharacters() []u8 {
     const first_space_index = std.mem.indexOfScalar(u8, &state.command.characters, ' ') orelse 64;
     return state.command.characters[0..first_space_index];
-}
-
-fn movePosToNextLine(pos: usize) usize {
-    if (state.term.width == 0) {
-        return pos;
-    } 
-    return pos + (state.term.width - (pos % state.term.width));
 }
 
 fn attemptToInitMenu() void {
@@ -454,4 +435,10 @@ fn attemptToInitMenu() void {
             }
         }
     }
+}
+
+fn movePosToAndClearNextLine(pos: usize, buffer: []u8) usize {
+    const new_pos = render.movePosToNextLine(pos, state.term.width);
+    @memset(buffer[new_pos..(new_pos+state.term.width)], ' ');
+    return new_pos;
 }

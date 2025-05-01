@@ -25,6 +25,12 @@ pub fn read(comptime T: type, allocator: std.mem.Allocator, db: zqlite.Conn, out
                 .@"enum" => {
                     @field(row_mem[i], f.name) = @enumFromInt(0);//row.get(f.@"type", inner);
                 },
+                .pointer => {
+                    const row_val_ptr = row.get(f.@"type", inner);
+                    const scratch = try allocator.alloc(u8, row_val_ptr.len);
+                    @memcpy(scratch, row_val_ptr);
+                    @field(row_mem[i], f.name) = scratch;
+                },
                 else => {
                     @field(row_mem[i], f.name) = row.get(f.@"type", inner);
                 },
@@ -33,7 +39,6 @@ pub fn read(comptime T: type, allocator: std.mem.Allocator, db: zqlite.Conn, out
         }
         i += 1;
     }
-    row_mem.len = i;
 
-    try render.drawTable(T, output, term, row_mem);
+    try render.drawTable(T, output, term, row_mem[0..i]);
 }

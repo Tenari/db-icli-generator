@@ -71,7 +71,7 @@ pub fn drawTable(
     inline for (@typeInfo(T).@"struct".fields) |f| {
         table_width += 2 + f.name.len;
     }
-    const margin = terminal_size.width - table_width / 2;
+    const margin = (terminal_size.width - table_width) / 2;
 
     // print the headers
     pos += margin;
@@ -81,7 +81,7 @@ pub fn drawTable(
         buffer[pos] = '|';
         pos += 1;
     }
-    pos += (terminal_size.width - (pos % terminal_size.width));
+    pos = movePosToNextLine(pos, terminal_size.width);
     for (rows) |row| {
         if (pos < buffer.len - 1 and pos / terminal_size.height < terminal_size.height - 1) {
             pos += margin;
@@ -102,14 +102,6 @@ pub fn drawTable(
                                 }
                             }
                         }
-                        //switch (@typeInfo(f.@"type".optional.child)) {
-                        //    .pointer => {
-                        //        _ = try std.fmt.bufPrint(&mini_buf, "{?s}", .{ @field(row, f.name) });
-                        //    },
-                        //    else => {
-                        //        _ = try std.fmt.bufPrint(&mini_buf, "{?}", .{ @field(row, f.name) });
-                        //    },
-                        //}
                     },
                     .@"enum" => {
                         _ = try std.fmt.bufPrint(&mini_buf, "{}", .{ @field(row, f.name) });
@@ -123,8 +115,15 @@ pub fn drawTable(
                 buffer[pos] = '|';
                 pos += 1;
             }
-            pos += (terminal_size.width - (pos % terminal_size.width));
+            pos = movePosToNextLine(pos, terminal_size.width);
         }
     }
+}
+
+pub fn movePosToNextLine(pos: usize, width: u16) usize {
+    if (width == 0) {
+        return pos;
+    } 
+    return pos + (width - (pos % width));
 }
 
