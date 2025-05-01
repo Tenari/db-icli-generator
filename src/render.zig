@@ -54,121 +54,77 @@ pub fn render(terminal: std.fs.File, buffer: []u8, terminal_size: *TermSizeAndLo
     // move to 0,0
     try terminal.writeAll("\x1B[1;1H");
     // render the buffer
-    try terminal.writeAll(buffer);
+    try terminal.writeAll(buffer[0..(terminal_size.width*terminal_size.height)]);
     // move to current cursor position
     try terminal.writer().print("\x1B[{};{}H", .{terminal_size.cursor_y + 1, terminal_size.cursor_x + 1});
 }
 
-//   fn renderMenuToBuffer(buffer: []u8, menu: Menu, start_pos: usize) usize {
-//       var pos = start_pos;
-//       for (menu.options, 0..) |option, i| {
-//           buffer[pos] = ' ';
-//           pos += 1;
-//           buffer[pos] = ' ';
-//           pos += 1;
-//           buffer[pos] = @intCast(49+i);
-//           pos += 1;
-//           buffer[pos] = '.';
-//           pos += 1;
-//           buffer[pos] = ' ';
-//           pos += 1;
-//           if (i == menu.selectedindex) {
-//               @memcpy(buffer[pos..(pos + highlightpre.len)], highlightpre);
-//               pos += highlightpre.len;
-//           }
-//           @memcpy(buffer[pos..(pos + option.name.len)], option.name);
-//           pos += option.name.len;
-//           if (i == menu.selectedindex) {
-//               @memcpy(buffer[pos..(pos + highlightpost.len)], highlightpost);
-//               pos += highlightpost.len;
-//           }
-//           for (0..(terminal_size.width - 5 - option.name.len)) |_| {
-//               buffer[pos] = ' ';
-//               pos += 1;
-//           }
-//       }
-//       return pos;
-//   }
-//
-//   fn renderTextToBuffer(buffer: []u8, text: []const u8, pos: usize) usize {
-//       var final_pos = pos + text.len;
-//       @memcpy(buffer[pos..final_pos], text);
-//       // pad the remainder of the line
-//       for (0..(terminal_size.width - text.len)) |_| {
-//           buffer[final_pos] = ' ';
-//           final_pos += 1;
-//       }
-//       // print a new line
-//       for (0..terminal_size.width) |_| {
-//           buffer[final_pos] = ' ';
-//           final_pos += 1;
-//       }
-//       return final_pos;
-//   }
-//
-//   const Direction = enum {up, down};
-//   pub fn moveSelectedIndex(page: *Page, direction: Direction) void {
-//       for (page.*) |*node| {
-//           if (node.menu) |*menu| {
-//               switch (direction) {
-//                   .down => {
-//                       if (menu.options.len-1 > menu.selectedindex) {
-//                           menu.selectedindex += 1;
-//                       } else {
-//                           menu.selectedindex = 0;
-//                       }
-//                   },
-//                   .up => {
-//                       if (menu.selectedindex == 0) {
-//                           menu.selectedindex = menu.options.len - 1;
-//                       } else {
-//                           menu.selectedindex -= 1;
-//                       }
-//                   },
-//               }
-//           }
-//       }
-//   }
-//
-//   pub fn currentMenu(page: Page) ?Menu {
-//       for (page) |node| {
-//           if (node.menu) |menu| {
-//               return menu;
-//           }
-//       }
-//       return null;
-//   }
-//   // the fundamental unit of rendering. The caller hands us a Page, and we render it.
-//   // when the user does something, we send back events for something else to manage state.
-//   pub const Page = []Node;
-//
-//   pub const Node = struct {
-//       as: NodeType,
-//       menu: ?Menu = null,
-//       text: ?[]const u8 = null,
-//       input: ?[]Input = null,
-//   };
-//
-//   pub const NodeType = enum {
-//       menu,
-//       text,
-//       input
-//   };
-//
-//   pub const Menu = struct {
-//       options: []MenuOption,
-//       selectedindex: usize = 0,
-//   };
-//
-//   pub const MenuOption = struct {
-//       name: []const u8,
-//       changepage: ?u64 = null,
-//       quit: bool = false,
-//   };
-//
-//   pub const Input = struct {
-//       label: []const u8,
-//       len: u16,
-//       value: []u8,
-//   };
-//
+// centers within terminal_size.width, or TODO truncates columns
+pub fn drawTable(
+    comptime T: type,
+    buffer: []u8,
+    terminal_size: TermSizeAndLoc,
+    rows: []T
+) !void {
+    var pos: usize = 0;
+    var table_width: usize = 0;
+    inline for (@typeInfo(T).@"struct".fields) |f| {
+        table_width += 2 + f.name.len;
+    }
+    const margin = terminal_size.width - table_width / 2;
+
+    // print the headers
+    pos += margin;
+    inline for (@typeInfo(T).@"struct".fields) |f| {
+        @memcpy(buffer[pos..(f.name.len+pos)], f.name);
+        pos += f.name.len + 1;
+        buffer[pos] = '|';
+        pos += 1;
+    }
+    pos += (terminal_size.width - (pos % terminal_size.width));
+    for (rows) |row| {
+        if (pos < buffer.len - 1 and pos / terminal_size.height < terminal_size.height - 1) {
+            pos += margin;
+            inline for (@typeInfo(T).@"struct".fields) |f| {
+                var mini_buf = [_]u8 { ' ' } ** 1024;
+                switch (@typeInfo(f.@"type")) {
+                    .pointer => {
+                        _ = try std.fmt.bufPrint(&mini_buf, "{?s}", .{ @field(row, f.name) });
+                    },
+                    .optional => |opt| {
+                        if (@field(row, f.name)) |prop| {
+                            switch (@typeInfo(opt.child)) {
+                                .pointer => {
+                                    _ = try std.fmt.bufPrint(&mini_buf, "{s}", .{ prop });
+                                },
+                                else => {
+                                    _ = try std.fmt.bufPrint(&mini_buf, "{}", .{ prop });
+                                }
+                            }
+                        }
+                        //switch (@typeInfo(f.@"type".optional.child)) {
+                        //    .pointer => {
+                        //        _ = try std.fmt.bufPrint(&mini_buf, "{?s}", .{ @field(row, f.name) });
+                        //    },
+                        //    else => {
+                        //        _ = try std.fmt.bufPrint(&mini_buf, "{?}", .{ @field(row, f.name) });
+                        //    },
+                        //}
+                    },
+                    .@"enum" => {
+                        _ = try std.fmt.bufPrint(&mini_buf, "{}", .{ @field(row, f.name) });
+                    },
+                    else => {
+                        _ = try std.fmt.bufPrint(&mini_buf, "{}", .{ @field(row, f.name) });
+                    },
+                }
+                @memcpy(buffer[pos..(f.name.len+pos)], mini_buf[0..f.name.len]);
+                pos += f.name.len + 1;
+                buffer[pos] = '|';
+                pos += 1;
+            }
+            pos += (terminal_size.width - (pos % terminal_size.width));
+        }
+    }
+}
+

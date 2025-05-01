@@ -49,5 +49,14 @@ pub const EventKind = enum {
 };
 
 pub const Noun = enum {
-    breed, animal, weight, event
+    breed, animal, weight, event,
+
+    pub fn toType(self: Noun) type {
+        switch (self) {
+            .breed => Breed,
+            .animal => Animal,
+            .weight => Weight,
+            .event => Event,
+        }
+    }
 };

@@ -2,15 +2,17 @@ const std = @import("std");
 const render = @import("render.zig");
 const types = @import("types.zig");
 const Noun = types.Noun;
+const commands = @import("commands.zig");
+const zqlite = @import("zqlite");
 
 const ASCII_DELETE = 127;
 const ASCII_BACKSPACE = 8;
 
 const appname = "rabbits";
+const create_sql_size = 1362;
 
 const State = struct {
     command: Command = .{},
-    //options: ?[]MenuOption = null,
     running: bool = true,
     term: render.TermSizeAndLoc = render.TermSizeAndLoc {
         .width = 80, .height = 10,
@@ -57,6 +59,45 @@ const Command = struct {
 var state = State {};
 
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{.thread_safe=true}){};
+    const gpa_allocator = gpa.allocator();
+    defer if (gpa.deinit() == .leak) {
+        std.log.err("Memory leak", .{});
+    };
+    // for now just guessing that we only need 1MB
+    const memory: []u8 = gpa_allocator.alloc(u8, 1024*1024) catch |err| {
+        std.log.err("Could not alloc from heap: {s}", .{ @errorName(err) });
+        return;
+    };
+    defer gpa_allocator.free(memory);
+    var fba = std.heap.FixedBufferAllocator.init(memory);
+    const allocator = fba.threadSafeAllocator();
+
+    const flags =  zqlite.OpenFlags.Create | zqlite.OpenFlags.EXResCode;
+    var db = try zqlite.open("./rabbits.sqlite", flags);
+    defer db.close();
+    // prep db if not exists. run create table statements
+    {
+        const file = std.fs.cwd().openFile("./rabbits/rabbits.sql", .{}) catch |err| {
+            std.log.err("Failed to open file: {s}", .{@errorName(err)});
+            return;
+        };
+        defer file.close();
+
+        var create_statements = [_:0]u8 {0} ** create_sql_size;
+        const read_size = file.reader().readAll(&create_statements) catch |err| {
+            std.log.err("Failed to read ./rabbits/rabbits.sql: {s}", .{@errorName(err)});
+            return;
+        };
+        std.debug.assert(read_size == create_sql_size);
+
+        db.execNoArgs(&create_statements) catch |err| {
+            std.log.err("{s}", .{ db.lastError() });
+            std.log.err("Failed to execute statement: {s}\n{?any}", .{@errorName(err), @errorReturnTrace()});
+            return;
+        };
+    }
+    // TODO if they passed in (valid) cli args, just do the command and output
     var runtime_zero: usize = 0;
     _ = &runtime_zero;
     const in = std.io.getStdIn().reader();
@@ -66,20 +107,27 @@ pub fn main() !void {
     defer render.deinit(out);
 
     var input: [32]u8 = undefined;
+    var display_buffer = try allocator.alloc(u8, 64*256);
+    @memset(display_buffer, ' ');
     while (state.running) {
-        var display_buffer = [_]u8 { ' ' } ** (1024*4);
-        drawState(&display_buffer);
-        try render.render(out, &display_buffer, &state.term);
+        drawState(display_buffer);
+        try render.render(out, display_buffer, &state.term);
         // get user input
         input = [_]u8{ 0 } ** 32;
         _ = try in.read(&input);
         const byte = input[0];
+        if (byte > 33 and byte < 127) {
+            display_buffer[0] = byte;
+        }
         // Q
         if (byte == 81) {
             state.running = false;
         }
         // ENTER/return
         if (byte == 10) {
+            display_buffer[0] = '\\';
+            display_buffer[1] = 'n';
+            std.log.err("enter pressed", .{});
             if (state.current_menu) |menu| {
                 if (state.command.verb == null) {
                     state.command.verb = @enumFromInt(menu.selection_index);
@@ -88,6 +136,23 @@ pub fn main() !void {
                     if (state.command.noun == null) {
                         state.command.noun = @enumFromInt(menu.selection_index);
                         state.resetMenu();
+                    }
+                }
+            } else {
+                if (state.command.noun) |noun| {
+                    // TODO: parse the command and do the thing
+                    // for read: set `state.table = RESULTS FROM SQLite matching `
+                    if (state.command.verb == .read) {
+                        var arena = std.heap.ArenaAllocator.init(allocator);
+                        defer arena.deinit();
+                        const alloc = arena.allocator();
+                        std.log.err("trying to run read() command", .{});
+                        switch (noun) {
+                            .breed => try commands.read(types.Breed, alloc, db, display_buffer[(state.term.width*6)..], noun, state.term),
+                            .animal => try commands.read(types.Animal, alloc, db, display_buffer[(state.term.width*6)..], noun, state.term),
+                            .weight => try commands.read(types.Weight, alloc, db, display_buffer[(state.term.width*6)..], noun, state.term),
+                            .event => try commands.read(types.Event, alloc, db, display_buffer[(state.term.width*6)..], noun, state.term),
+                        }
                     }
                 }
             }
@@ -250,6 +315,7 @@ fn enumLen(comptime T: type, en: T) usize {
 fn drawState(buffer: []u8) void {
     // draw the current version of the cli command
     var pos: usize = movePosToNextLine(0);
+    @memset(buffer[pos..(pos+state.term.width)], ' ');
     pos += 4;
     buffer[pos] = '$';
     pos += 2;
@@ -272,6 +338,7 @@ fn drawState(buffer: []u8) void {
     @memcpy(buffer[pos..(state.command.characters.len+pos)], &state.command.characters);
     pos += state.command.characters.len;
     pos = movePosToNextLine(pos);
+    @memset(buffer[pos..(pos+state.term.width)], ' ');
 
     // draw the completion options
     pos += (7 + appname.len);
@@ -289,6 +356,7 @@ fn drawState(buffer: []u8) void {
                 @memcpy(buffer[pos..(f.name.len+pos)], f.name);
                 pos += f.name.len;
                 pos = movePosToNextLine(pos);
+                @memset(buffer[pos..(pos+state.term.width)], ' ');
                 pos += (7 + appname.len);
             }
         }
@@ -311,6 +379,7 @@ fn drawState(buffer: []u8) void {
                     @memcpy(buffer[pos..(f.name.len+pos)], f.name);
                     pos += f.name.len;
                     pos = movePosToNextLine(pos);
+                    @memset(buffer[pos..(pos+state.term.width)], ' ');
                     pos += (7 + appname.len);
                 }
             }
@@ -331,6 +400,9 @@ fn currentPartialCommandCharacters() []u8 {
 }
 
 fn movePosToNextLine(pos: usize) usize {
+    if (state.term.width == 0) {
+        return pos;
+    } 
     return pos + (state.term.width - (pos % state.term.width));
 }
 
@@ -383,19 +455,3 @@ fn attemptToInitMenu() void {
         }
     }
 }
-//fn handleSelection(index: ?usize) void {
-//    if (render.currentMenu(current_page)) |menu| {
-//        const option = menu.options[index orelse menu.selectedindex];
-//        if (option.quit) {
-//            running = false;
-//        } else if (option.changepage) |pg| {
-//            const named: NamedPage = @enumFromInt(pg);
-//            current_page = switch (named) {
-//                .main => &mainpage,
-//                .animals => &animalspage,
-//                .events => &eventspage,
-//                else => &mainpage,
-//            };
-//        }
-//    }
-//}

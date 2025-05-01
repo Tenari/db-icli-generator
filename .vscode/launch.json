@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "type": "lldb-dap",
+            "request": "launch",
+            "name": "Debug",
+            "program": "${workspaceRoot}/zig-out/bin/rabbits",
+            "args": [],
+            "env": [],
+            "cwd": "${workspaceRoot}"
+        },
+        {
+          "name": "Attach to Name (wait)",
+          "type": "lldb-dap",
+          "request": "attach",
+          "program": "${workspaceRoot}/zig-out/bin/rabbits"
+        }
+    ]
+}

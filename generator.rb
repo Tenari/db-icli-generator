@@ -11,8 +11,9 @@ def make_create_table_sql(conf)
   sql = ""
   conf.each do |table_name, details|
     foreign_key_sql = []
-    column_sql = "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+    column_sql = "  id INTEGER PRIMARY KEY AUTOINCREMENT"
     details.each do |col, settings|
+      column_sql += ",\n"
       column_sql += "  #{col} #{settings["type"].upcase}"
       if settings["not_null"]
         column_sql += " NOT NULL"
@@ -21,17 +22,16 @@ def make_create_table_sql(conf)
         column_sql += " DEFAULT #{settings["default"]}"
       end
       if settings["check"]
-        column_sql += " CHECK (#{col} IN (#{settings["check"].map {|i| i.inspect}.join(", ")}))"
+        column_sql += " CHECK (#{col} IN (#{settings["check"].map {|i| i.inspect.gsub('"',"'")}.join(", ")}))"
       end
-      column_sql += ",\n"
 
       if settings['foreign']
         foreign_key_sql.push("  FOREIGN KEY (#{col}) REFERENCES #{settings['foreign']} (id)")
       end
     end
-    column_sql += "  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,\n  created_at TEXT DEFAULT CURRENT_TIMESTAMP,\n"
+    column_sql += ",\n  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,\n  created_at TEXT DEFAULT CURRENT_TIMESTAMP"
     sql += "CREATE TABLE IF NOT EXISTS #{table_name} (
-#{column_sql}#{foreign_key_sql.join(",\n")}
+#{column_sql}#{foreign_key_sql.count > 0 ? ",\n" : ""}#{foreign_key_sql.join(",\n")}
 );\n"
   end
   sql
@@ -70,7 +70,13 @@ def make_zig_types(conf)
 #{fields}};\n\n"
   end
     ztypes += "pub const Noun = enum {
-  #{nouns.join(', ')}
+  #{nouns.join(', ')},
+
+    pub fn toType(self: Noun) type {
+        return switch (self) {
+            #{nouns.map {|n| "#{n} => #{n.capitalize}"}.join(",\n            ")}
+        }
+    }
 };
 \n"
   ztypes

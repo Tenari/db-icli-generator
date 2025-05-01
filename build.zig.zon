@@ -1,0 +1,12 @@
+.{
+    .name = .rabbits,
+    .version = "0.0.1",
+    .fingerprint = 0x92b7b5fd1262de5e,
+    .dependencies = .{
+        .zqlite = .{
+            .url = "git+https://github.com/karlseguin/zqlite.zig?ref=master#3cd6edca7d735fe9a8545c699091cfcebe1feb7f",
+            .hash = "zqlite-0.0.0-RWLaY0Z7lQApOOwYrJMyZomy1GlA3vRnmtrTaWQ2BSQK",
+        },
+    },
+    .paths = .{"."},
+}
