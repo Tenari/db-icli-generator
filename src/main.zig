@@ -7,8 +7,10 @@ const zqlite = @import("zqlite");
 
 const ASCII_DELETE = 127;
 const ASCII_BACKSPACE = 8;
+const ASCII_ENTER = 10;
 
 const appname = "rabbits";
+const prompt_start_x = 7 + appname.len;
 const create_sql_size = 1362;
 
 const State = struct {
@@ -116,15 +118,19 @@ pub fn main() !void {
         input = [_]u8{ 0 } ** 32;
         _ = try in.read(&input);
         const byte = input[0];
+
+        // update state based on input
+
         //if (byte > 33 and byte < 127) {
         //    display_buffer[0] = byte;
         //}
+
         // Q
         if (byte == 81) {
             state.running = false;
         }
         // ENTER/return
-        if (byte == 10) {
+        if (byte == ASCII_ENTER) {
             //display_buffer[0] = '\\';
             //display_buffer[1] = 'n';
             std.log.err("enter pressed", .{});
@@ -157,7 +163,6 @@ pub fn main() !void {
                         state.command.verb = null;
                         state.command.noun = null;
                         @memset(&state.command.characters, ' ');
-                        state.term.cursor_x = 7 + appname.len;
                     }
                 }
             }
@@ -166,11 +171,9 @@ pub fn main() !void {
         if (isDigitCharacter(byte)) {
             if (state.command.verb == null) {
                 state.command.verb = @enumFromInt(byte - 49);
-                state.term.cursor_x += @intCast(enumLen(Verb, state.command.verb.?));
             } else {
                 if (state.command.noun == null) {
                     state.command.noun = @enumFromInt(byte - 49);
-                    state.term.cursor_x += @intCast(enumLen(Noun, state.command.noun.?));
                 }
             }
             @memset(&state.command.characters, ' ');
@@ -182,7 +185,6 @@ pub fn main() !void {
                 if (!placed and char.* == ' ') {
                     char.* = byte;
                     placed = true;
-                    state.term.cursor_x += 1;
                 }
             }
         }
@@ -195,15 +197,12 @@ pub fn main() !void {
                 if (!deleted and state.command.characters[j] != ' ') {
                     state.command.characters[j] = ' ';
                     deleted = true;
-                    state.term.cursor_x -= 1;
                 }
             }
             if (!deleted) {
-                if (state.command.noun) |n| {
-                    state.term.cursor_x -= @intCast(enumLen(Noun, n));
+                if (state.command.noun != null) {
                     state.command.noun = null;
-                } else if (state.command.verb) |v| {
-                    state.term.cursor_x -= @intCast(enumLen(Verb, v));
+                } else if (state.command.verb != null) {
                     state.command.verb = null;
                 }
             }
@@ -215,7 +214,6 @@ pub fn main() !void {
                 inline for (@typeInfo(Verb).@"enum".fields) |f| {
                     if (!completed and std.mem.startsWith(u8, f.name, typed_characters)) {
                         state.command.verb = @enumFromInt(f.value);
-                        state.term.cursor_x += f.name.len;
                         completed = true;
                     }
                 }
@@ -224,15 +222,12 @@ pub fn main() !void {
                     inline for (@typeInfo(Noun).@"enum".fields) |f| {
                         if (!completed and std.mem.startsWith(u8, f.name, typed_characters)) {
                             state.command.noun = @enumFromInt(f.value);
-                            state.term.cursor_x += f.name.len;
                             completed = true;
                         }
                     }
                 }
             }
             if (completed) {
-                state.term.cursor_x -= @intCast(typed_characters.len);
-                state.term.cursor_x += 1;
                 @memset(&state.command.characters, ' ');
                 state.resetMenu();
             }
@@ -328,7 +323,7 @@ fn drawState(buffer: []u8) void {
     pos = movePosToAndClearNextLine(pos, buffer);
 
     // draw the completion options
-    pos += (7 + appname.len);
+    pos += prompt_start_x;
     const typed_characters = currentPartialCommandCharacters();
     var menu_draw_start_pos = pos;
     if (state.command.verb == null) {
@@ -343,7 +338,7 @@ fn drawState(buffer: []u8) void {
                 @memcpy(buffer[pos..(f.name.len+pos)], f.name);
                 pos += f.name.len;
                 pos = movePosToAndClearNextLine(pos, buffer);
-                pos += (7 + appname.len);
+                pos += prompt_start_x;
             }
         }
     } else {
@@ -365,7 +360,7 @@ fn drawState(buffer: []u8) void {
                     @memcpy(buffer[pos..(f.name.len+pos)], f.name);
                     pos += f.name.len;
                     pos = movePosToAndClearNextLine(pos, buffer);
-                    pos += (7 + appname.len);
+                    pos += prompt_start_x;
                 }
             }
         }
@@ -374,11 +369,23 @@ fn drawState(buffer: []u8) void {
         pos = movePosToAndClearNextLine(pos, buffer);
     }
 
+    // handle cursor position
+    // either in the menu
     if (state.current_menu) |menu| {
         state.term.cursor_x = @truncate(menu_draw_start_pos % state.term.width);
         const extra_menu_index_y_bump: u16 = @truncate(menu.selection_index);
         const draw_menu_start_y: u16 = @truncate(menu_draw_start_pos / state.term.width);
         state.term.cursor_y = draw_menu_start_y + extra_menu_index_y_bump;
+    } else { // or on the command prompt line
+        const first_space_index: u16 = @intCast(std.mem.indexOfScalar(u8, &state.command.characters, ' ') orelse 64);
+        state.term.cursor_y = 1;
+        state.term.cursor_x = @intCast(prompt_start_x + first_space_index);
+        if (state.command.verb) |v| {
+            state.term.cursor_x += @intCast(enumLen(Verb, v));
+            if (state.command.noun) |n| {
+                state.term.cursor_x += @intCast(enumLen(Noun, n));
+            }
+        }
     }
 }
 
